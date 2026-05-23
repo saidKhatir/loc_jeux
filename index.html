@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Carte Localisée</title>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <!-- Bouton localisation -->
+  <button id="btn-locate" aria-label="Me localiser">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>
+      <circle cx="12" cy="12" r="8" stroke-dasharray="2 2"/>
+    </svg>
+  </button>
+
+  <!-- Panneau itinéraire (bottom sheet) -->
+  <div id="route-panel" aria-live="polite">
+    <div id="route-handle"></div>
+
+    <div id="route-header">
+      <div id="route-dest">
+        <span id="route-dest-icon">📍</span>
+        <span id="route-dest-label">Destination sélectionnée</span>
+      </div>
+      <button id="btn-close-route" aria-label="Fermer l'itinéraire">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div id="route-stats">
+      <div class="stat-card" id="stat-duration">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <div class="stat-value" id="val-duration">--</div>
+        <div class="stat-label">durée</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-card" id="stat-distance">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M3 12h18M3 12l4-4m-4 4l4 4M21 12l-4-4m4 4l-4 4"/>
+        </svg>
+        <div class="stat-value" id="val-distance">--</div>
+        <div class="stat-label">distance</div>
+      </div>
+    </div>
+
+    <div id="route-hint">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;flex-shrink:0">
+        <path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/>
+        <circle cx="12" cy="10" r="2.5"/>
+      </svg>
+      Cliquez sur un autre point pour recalculer
+    </div>
+  </div>
+
+  <!-- Hint initial -->
+  <div id="hint-tap">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;flex-shrink:0">
+      <path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/>
+      <circle cx="12" cy="10" r="2.5"/>
+    </svg>
+    Appuyez sur un point pour calculer l'itinéraire
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

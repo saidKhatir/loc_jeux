@@ -1,0 +1,22 @@
+{
+"type": "FeatureCollection",
+"name": "loc",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "fid": 68, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.301982939026513, 47.261330154626023 ] } },
+{ "type": "Feature", "properties": { "fid": 69, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.302540468669251, 47.261540376510077 ] } },
+{ "type": "Feature", "properties": { "fid": 70, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.302093541021965, 47.261661029789252 ] } },
+{ "type": "Feature", "properties": { "fid": 71, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.302569450155201, 47.261833732589345 ] } },
+{ "type": "Feature", "properties": { "fid": 72, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.302779574907568, 47.262295604871454 ] } },
+{ "type": "Feature", "properties": { "fid": 73, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.302744093607042, 47.262462251816302 ] } },
+{ "type": "Feature", "properties": { "fid": 74, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.302483215754918, 47.262450621083445 ] } },
+{ "type": "Feature", "properties": { "fid": 93, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.318928902502646, 47.270267355546139 ] } },
+{ "type": "Feature", "properties": { "fid": 95, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.318655199367439, 47.270298392597574 ] } },
+{ "type": "Feature", "properties": { "fid": 96, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.318956750165537, 47.270055524618726 ] } },
+{ "type": "Feature", "properties": { "fid": 98, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.319286428304474, 47.270151202846982 ] } },
+{ "type": "Feature", "properties": { "fid": 99, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.322683789233605, 47.270636683866279 ] } },
+{ "type": "Feature", "properties": { "fid": 100, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.322819604331157, 47.270712475267807 ] } },
+{ "type": "Feature", "properties": { "fid": 117, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.323989486155429, 47.286361646988674 ] } },
+{ "type": "Feature", "properties": { "fid": 118, "loc": null }, "geometry": { "type": "Point", "coordinates": [ -2.323971385720569, 47.286941643550847 ] } }
+]
+}
