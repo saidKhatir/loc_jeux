@@ -4,7 +4,7 @@
    ═══════════════════════════════════════════════════════ */
 
 // ── Config ────────────────────────────────────────────
-const GEOJSON_PATH = '/loc.geojson';
+const GEOJSON_PATH = 'loc.geojson';
 // API OSRM publique (open source, gratuite, pas de token)
 const OSRM_API = 'https://router.project-osrm.org/route/v1/driving';
 
