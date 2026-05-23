@@ -19,8 +19,8 @@ let routeVisible      = false;
 const map = new maplibregl.Map({
   container: 'map',
   style: 'https://tiles.openfreemap.org/styles/liberty',
-  center: [2.3488, 48.8534],
-  zoom: 12,
+  center: [-2.3088, 48.2634],
+  zoom: 3,
   pitch: 55,
   bearing: -10,
   antialias: true,
