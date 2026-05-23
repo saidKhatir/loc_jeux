@@ -1,25 +1,24 @@
 /* ═══════════════════════════════════════════════════════
-   app.js  –  Carte Mapbox Standard 3D + points GeoJSON
-              + calcul d'itinéraire voiture (Directions API)
+   app.js  –  MapLibre GL JS v4 + OSRM routing
+              Aucun token requis — 100% open source
    ═══════════════════════════════════════════════════════ */
 
 // ── Config ────────────────────────────────────────────
-
-mapboxgl.accessToken = 'pk.eyJ1Ijoic2FpZGtoYXRpciIsImEiOiJjbHNrZHJpamcwMm03MmpuYWN4MWsxdHJrIn0.Lv3Bzhrab6Qw2sKs5rHarw';
-
-const GEOJSON_PATH   = 'loc.geojson';
-const DIRECTIONS_API = 'https://api.mapbox.com/directions/v5/mapbox/driving';
+const GEOJSON_PATH = '/loc.geojson';
+// API OSRM publique (open source, gratuite, pas de token)
+const OSRM_API = 'https://router.project-osrm.org/route/v1/driving';
 
 // ── État global ───────────────────────────────────────
-let userPosition  = null;   // [lng, lat]
-let userMarker    = null;
-let destMarker    = null;
-let routeVisible  = false;
+let userPosition      = null;   // [lng, lat]
+let userMarker        = null;
+let destMarker        = null;
+let selectedFeatureId = null;
+let routeVisible      = false;
 
-// ── Carte ─────────────────────────────────────────────
-const map = new mapboxgl.Map({
+// ── Carte MapLibre ────────────────────────────────────
+const map = new maplibregl.Map({
   container: 'map',
-  style: 'mapbox://styles/mapbox/standard',
+  style: 'https://tiles.openfreemap.org/styles/liberty',
   center: [2.3488, 48.8534],
   zoom: 12,
   pitch: 55,
@@ -27,29 +26,64 @@ const map = new mapboxgl.Map({
   antialias: true,
 });
 
-map.on('style.load', () => {
+map.on('load', () => {
 
-  // Source + couche pour le tracé de route
+  // ── Bâtiments 3D ──────────────────────────────────
+  // On cherche le premier layer de type symbol pour insérer les bâtiments AVANT
+  // (afin que les bâtiments ne couvrent pas les labels)
+  const layers = map.getStyle().layers;
+  const firstSymbolId = layers.find(l => l.type === 'symbol')?.id;
+
+  // Ajouter une couche de bâtiments 3D
+  if (!map.getLayer('3d-buildings')) {
+    map.addLayer(
+      {
+        id: '3d-buildings',
+        source: 'openmaptiles',
+        'source-layer': 'building',
+        type: 'fill-extrusion',
+        minzoom: 13,
+        paint: {
+          'fill-extrusion-color': [
+            'interpolate', ['linear'], ['get', 'render_height'],
+            0,   '#1a2035',
+            20,  '#1e2d4a',
+            100, '#243660',
+          ],
+          'fill-extrusion-height': [
+            'interpolate', ['linear'], ['zoom'],
+            13, 0,
+            14, ['coalesce', ['get', 'render_height'], 10],
+          ],
+          'fill-extrusion-base': [
+            'coalesce', ['get', 'render_min_height'], 0,
+          ],
+          'fill-extrusion-opacity': 0.85,
+        },
+      },
+      firstSymbolId  // inséré AVANT les symboles/labels → les bâtiments restent sous les labels
+    );
+  }
+
+  // ── Source route (tracé vide au départ) ──────────
   map.addSource('route-source', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
   });
 
-  // Couche ombre (épaisse, sombre)
   map.addLayer({
     id: 'route-shadow',
     type: 'line',
     source: 'route-source',
     layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: {
-      'line-color': 'rgba(0,0,0,0.35)',
+      'line-color': 'rgba(0,0,0,0.3)',
       'line-width': 10,
       'line-blur': 4,
       'line-translate': [2, 3],
     },
   });
 
-  // Couche principale de la route
   map.addLayer({
     id: 'route-layer',
     type: 'line',
@@ -62,7 +96,6 @@ map.on('style.load', () => {
     },
   });
 
-  // Couche pointillé animé par-dessus
   map.addLayer({
     id: 'route-dash',
     type: 'line',
@@ -72,10 +105,11 @@ map.on('style.load', () => {
       'line-color': '#fff',
       'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 16, 2.5],
       'line-dasharray': [0, 4, 3],
-      'line-opacity': 0.55,
+      'line-opacity': 0.5,
     },
   });
 
+  // Les points sont chargés EN DERNIER → ils s'affichent par-dessus tout
   loadPoints();
 });
 
@@ -83,19 +117,35 @@ map.on('style.load', () => {
 function loadPoints() {
   fetch(GEOJSON_PATH)
     .then((r) => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status} — ${GEOJSON_PATH}`);
       return r.json();
     })
     .then((geojson) => {
-      map.addSource('points-source', { type: 'geojson', data: geojson });
+      // FIX : on ne touche PAS aux ids manuellement quand generateId:true est actif.
+      // generateId:true génère automatiquement des ids entiers séquentiels (0, 1, 2…)
+      // et les conflits avec des ids existants dans les features corrompent le rendu
+      // sous MapLibre GL JS v4. On supprime donc tout id existant dans les features.
+      geojson.features = geojson.features.map((f) => {
+        const clean = { ...f };
+        delete clean.id;   // laisser generateId faire son travail
+        return clean;
+      });
 
+      map.addSource('points-source', {
+        type: 'geojson',
+        data: geojson,
+        generateId: true,  // MapLibre attribue des ids 0, 1, 2… sans conflit
+      });
+
+      // FIX : aucun 4e argument → les layers de points sont ajoutés AU SOMMET
+      // de la pile de rendu et s'affichent donc par-dessus les bâtiments 3D.
       map.addLayer({
         id: 'points-halo',
         type: 'circle',
         source: 'points-source',
         paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 10, 16, 20],
-          'circle-color': 'rgba(0,212,170,0.14)',
+          'circle-radius':       ['interpolate', ['linear'], ['zoom'], 10, 10, 16, 22],
+          'circle-color':        'rgba(0,212,170,0.13)',
           'circle-stroke-width': 0,
         },
       });
@@ -113,11 +163,8 @@ function loadPoints() {
         },
       });
 
-      // Curseur
       map.on('mouseenter', 'points-layer', () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', 'points-layer', () => { map.getCanvas().style.cursor = ''; });
-
-      // Clic sur un point → calculer l'itinéraire
       map.on('click', 'points-layer', onPointClick);
 
       centerOnPoints(geojson);
@@ -128,60 +175,52 @@ function loadPoints() {
     });
 }
 
-// ── Clic sur un point de la couche ───────────────────
-let selectedFeatureId = null;
-
+// ── Clic sur un point ─────────────────────────────────
 function onPointClick(e) {
   const feature = e.features[0];
   const coords  = feature.geometry.coordinates.slice();
 
-  // Reset état visuel du précédent point sélectionné
   if (selectedFeatureId !== null) {
     map.setFeatureState({ source: 'points-source', id: selectedFeatureId }, { selected: false });
   }
+  // FIX : avec generateId:true, l'id est sur feature.id (entier auto-généré)
   selectedFeatureId = feature.id;
   map.setFeatureState({ source: 'points-source', id: selectedFeatureId }, { selected: true });
 
-  // Masquer le hint
   document.getElementById('hint-tap').classList.add('hidden');
 
-  // Nom du point (adapte selon tes propriétés GeoJSON)
   const props = feature.properties || {};
   const label = props.nom || props.name || props.label || props.titre
              || props.id  || `Point ${selectedFeatureId ?? ''}`;
 
-  // Marqueur destination
   if (destMarker) {
     destMarker.setLngLat(coords);
   } else {
     const el = document.createElement('div');
     el.className = 'dest-marker';
-    destMarker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+    destMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
       .setLngLat(coords)
       .addTo(map);
   }
 
-  // Mettre à jour le label dans le panel
   document.getElementById('route-dest-label').textContent = label;
 
+  openPanel();
+  setStatsLoading();
+
   if (!userPosition) {
-    openPanel();
-    setStatsLoading();
     showToast('Activez la géolocalisation pour calculer l\'itinéraire.', true);
     return;
   }
 
-  openPanel();
-  setStatsLoading();
   calculateRoute(userPosition, coords);
 }
 
-// ── Calcul d'itinéraire via Mapbox Directions ─────────
+// ── Calcul d'itinéraire OSRM (open source, gratuit) ──
 async function calculateRoute(origin, destination) {
   const url =
-    `${DIRECTIONS_API}/${origin[0]},${origin[1]};${destination[0]},${destination[1]}` +
-    `?geometries=geojson&overview=full&steps=false` +
-    `&access_token=${mapboxgl.accessToken}`;
+    `${OSRM_API}/${origin[0]},${origin[1]};${destination[0]},${destination[1]}` +
+    `?geometries=geojson&overview=full`;
 
   try {
     const res  = await fetch(url);
@@ -194,28 +233,23 @@ async function calculateRoute(origin, destination) {
     }
 
     const route    = data.routes[0];
-    const duration = route.duration; // secondes
-    const distance = route.distance; // mètres
+    const duration = route.duration;
+    const distance = route.distance;
 
-    // Afficher le tracé
     map.getSource('route-source').setData({
       type: 'FeatureCollection',
       features: [{ type: 'Feature', geometry: route.geometry }],
     });
 
-    // Mettre à jour les stats
     document.getElementById('val-duration').textContent = formatDuration(duration);
     document.getElementById('val-distance').textContent = formatDistance(distance);
     document.getElementById('val-duration').classList.remove('loading');
     document.getElementById('val-distance').classList.remove('loading');
 
-    // Cadrer sur la route
-    const bounds = route.geometry.coordinates.reduce(
+    const coords = route.geometry.coordinates;
+    const bounds = coords.reduce(
       (b, c) => b.extend(c),
-      new mapboxgl.LngLatBounds(
-        route.geometry.coordinates[0],
-        route.geometry.coordinates[0]
-      )
+      new maplibregl.LngLatBounds(coords[0], coords[0])
     );
     map.fitBounds(bounds, {
       padding: { top: 80, bottom: 240, left: 40, right: 40 },
@@ -226,7 +260,7 @@ async function calculateRoute(origin, destination) {
     routeVisible = true;
 
   } catch (err) {
-    console.error('[app.js] Directions API :', err);
+    console.error('[app.js] OSRM :', err);
     showToast('Erreur lors du calcul d\'itinéraire.', true);
     setStatsError();
   }
@@ -246,41 +280,35 @@ function formatDistance(meters) {
   return `${(meters / 1000).toFixed(1)} km`;
 }
 
-// ── Helpers panel ─────────────────────────────────────
-function openPanel() {
-  document.getElementById('route-panel').classList.add('open');
-}
+// ── Panel ─────────────────────────────────────────────
+function openPanel()  { document.getElementById('route-panel').classList.add('open'); }
 
 function closePanel() {
   document.getElementById('route-panel').classList.remove('open');
-  // Effacer le tracé
   if (map.getSource('route-source')) {
     map.getSource('route-source').setData({ type: 'FeatureCollection', features: [] });
   }
-  // Retirer le marqueur destination
   if (destMarker) { destMarker.remove(); destMarker = null; }
-  // Reset couleur point sélectionné
   if (selectedFeatureId !== null) {
     map.setFeatureState({ source: 'points-source', id: selectedFeatureId }, { selected: false });
     selectedFeatureId = null;
   }
   routeVisible = false;
-  // Réafficher le hint
   document.getElementById('hint-tap').classList.remove('hidden');
 }
 
 function setStatsLoading() {
-  document.getElementById('val-duration').textContent = '';
-  document.getElementById('val-distance').textContent = '';
-  document.getElementById('val-duration').classList.add('loading');
-  document.getElementById('val-distance').classList.add('loading');
+  ['val-duration', 'val-distance'].forEach(id => {
+    document.getElementById(id).textContent = '';
+    document.getElementById(id).classList.add('loading');
+  });
 }
 
 function setStatsError() {
-  document.getElementById('val-duration').classList.remove('loading');
-  document.getElementById('val-distance').classList.remove('loading');
-  document.getElementById('val-duration').textContent = '--';
-  document.getElementById('val-distance').textContent = '--';
+  ['val-duration', 'val-distance'].forEach(id => {
+    document.getElementById(id).classList.remove('loading');
+    document.getElementById(id).textContent = '--';
+  });
 }
 
 document.getElementById('btn-close-route').addEventListener('click', closePanel);
@@ -296,10 +324,8 @@ function locateUser() {
   }
   btnLocate.classList.add('locating');
   showToast('Localisation en cours…');
-
   navigator.geolocation.getCurrentPosition(
-    onLocationSuccess,
-    onLocationError,
+    onLocationSuccess, onLocationError,
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
   );
 }
@@ -314,16 +340,15 @@ function onLocationSuccess(position) {
   } else {
     const el = document.createElement('div');
     el.className = 'user-dot';
-    userMarker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+    userMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
       .setLngLat(userPosition)
       .addTo(map);
   }
 
-  // Si un point est déjà sélectionné, recalculer maintenant qu'on a la position
   if (selectedFeatureId !== null && destMarker) {
-    const destLngLat = destMarker.getLngLat();
+    const lngLat = destMarker.getLngLat();
     setStatsLoading();
-    calculateRoute(userPosition, [destLngLat.lng, destLngLat.lat]);
+    calculateRoute(userPosition, [lngLat.lng, lngLat.lat]);
   } else {
     map.flyTo({
       center: userPosition, zoom: 14, pitch: 55,
@@ -352,7 +377,7 @@ function centerOnPoints(geojson) {
   if (coords.length === 1) { map.flyTo({ center: coords[0], zoom: 14, pitch: 55 }); return; }
   const bounds = coords.reduce(
     (b, c) => b.extend(c),
-    new mapboxgl.LngLatBounds(coords[0], coords[0])
+    new maplibregl.LngLatBounds(coords[0], coords[0])
   );
   map.fitBounds(bounds, {
     padding: { top: 80, bottom: 120, left: 40, right: 40 },
