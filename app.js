@@ -5,7 +5,7 @@
 
 // ── Config ────────────────────────────────────────────
 
-mapboxgl.accessToken = 'VOTRE_TOKEN_MAPBOX';
+mapboxgl.accessToken = 'pk.eyJ1Ijoic2FpZGtoYXRpciIsImEiOiJjbHNrZHJpamcwMm03MmpuYWN4MWsxdHJrIn0.Lv3Bzhrab6Qw2sKs5rHarw';
 
 const GEOJSON_PATH   = 'loc.geojson';
 const DIRECTIONS_API = 'https://api.mapbox.com/directions/v5/mapbox/driving';
