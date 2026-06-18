@@ -9,11 +9,14 @@ const GEOJSON_PATH = 'loc.geojson';
 const OSRM_API = 'https://router.project-osrm.org/route/v1/driving';
 
 // ── État global ───────────────────────────────────────
-let userPosition      = null;   // [lng, lat]
-let userMarker        = null;
-let destMarker        = null;
-let selectedFeatureId = null;
-let routeVisible      = false;
+let userPosition          = null;   // [lng, lat]
+let userMarker            = null;
+let destMarker            = null;
+let selectedFeatureId     = null;
+let selectedCoords        = null;   // [lng, lat] du point cliqué, utilisé pour le lien Google Maps
+let routeVisible          = false;
+let currentStyleMode      = 'vector'; // 'vector' (OSM) ou 'satellite' (Google)
+let routeAbortController  = null;     // Gestion de la concurrence réseau OSRM
 
 // ── Carte MapLibre ────────────────────────────────────
 const map = new maplibregl.Map({
@@ -28,13 +31,51 @@ const map = new maplibregl.Map({
 
 map.on('load', () => {
 
-  // ── Bâtiments 3D ──────────────────────────────────
-  // On cherche le premier layer de type symbol pour insérer les bâtiments AVANT
-  // (afin que les bâtiments ne couvrent pas les labels)
-  const layers = map.getStyle().layers;
-  const firstSymbolId = layers.find(l => l.type === 'symbol')?.id;
+  // ── Repère commun pour empiler proprement les fonds de carte ──
+  // FIX : on calcule cet identifiant UNE SEULE FOIS, avant tout ajout.
+  // firstSymbolId marque la frontière entre les couches "données" du
+  // style vecteur (background, landuse, eau, routes…) et les couches
+  // "labels" (symbol). C'est l'ancre qu'on utilise pour empiler à la
+  // fois le satellite et les bâtiments 3D au bon endroit.
+  const baseLayers    = map.getStyle().layers;
+  const firstSymbolId = baseLayers.find(l => l.type === 'symbol')?.id;
 
-  // Ajouter une couche de bâtiments 3D
+  // ── Source & Couche Satellite Google ──────────────────
+  // FIX : précédemment insérée avant la toute première couche du style
+  // (donc sous le fond opaque "background"/landuse/eau/routes), ce qui
+  // la rendait invisible même à raster-opacity:1. On l'insère désormais
+  // juste avant firstSymbolId : elle vient donc se poser AU-DESSUS de
+  // tous les remplissages opaques du fond OSM vecteur et masque
+  // correctement celui-ci une fois activée, tout en restant SOUS les
+  // bâtiments 3D et les labels.
+  map.addSource('google-satellite-source', {
+    type: 'raster',
+    tiles: [
+      "https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+      "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+      "https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+      "https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
+    ],
+    tileSize: 256
+  });
+
+  map.addLayer({
+    id: 'google-satellite-layer',
+    type: 'raster',
+    source: 'google-satellite-source',
+    paint: {
+      'raster-opacity': 0 // Masqué par défaut : on démarre sur le fond OSM vecteur
+    }
+  }, firstSymbolId);
+
+  // ── Bâtiments 3D ──────────────────────────────────
+  // FIX : ajoutés avec le MÊME ancrage (firstSymbolId) que le satellite.
+  // Comme addLayer(layer, beforeId) insère juste avant la couche cible,
+  // ce second appel avec le même beforeId place les bâtiments
+  // au-dessus du satellite (et toujours sous les labels) :
+  //   [fonds vecteur opaques] → [satellite] → [bâtiments 3D] → [labels]
+  // Le fond actif (OSM ou satellite) est donc visible sous les
+  // bâtiments dans les deux modes.
   if (!map.getLayer('3d-buildings')) {
     map.addLayer(
       {
@@ -44,28 +85,36 @@ map.on('load', () => {
         type: 'fill-extrusion',
         minzoom: 13,
         paint: {
+          // FIX : on enveloppe l'entrée dans un coalesce, exactement comme pour
+          // la hauteur. Sans ce repli, quand render_height est absent (tuiles
+          // de zoom moins détaillé), interpolate recevait une valeur invalide
+          // et MapLibre retombait sur la couleur par défaut du calque, à savoir
+          // noir — c'est ce qui causait le flash noir observé en zoomant.
           'fill-extrusion-color': [
-            'interpolate', ['linear'], ['get', 'render_height'],
+            'interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 10],
             0,   '#1a2035',
             20,  '#1e2d4a',
             100, '#243660',
           ],
-          'fill-extrusion-height': [
-            'interpolate', ['linear'], ['zoom'],
-            13, 0,
-            14, ['coalesce', ['get', 'render_height'], 10],
-          ],
-          'fill-extrusion-base': [
-            'coalesce', ['get', 'render_min_height'], 0,
-          ],
+          // FIX : suppression de l'effet de fade-in par zoom (qui forçait
+          // la hauteur à 0 entre les zooms 13 et 14, alors que la base
+          // restait égale à render_min_height — ce qui pouvait produire
+          // une base supérieure à la hauteur, donc une extrusion
+          // inversée/invalide). Les bâtiments affichent maintenant
+          // directement leur hauteur réelle dès l'entrée en minzoom.
+          'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 10],
+          'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
           'fill-extrusion-opacity': 0.85,
         },
       },
-      firstSymbolId  // inséré AVANT les symboles/labels → les bâtiments restent sous les labels
+      firstSymbolId
     );
   }
 
   // ── Source route (tracé vide au départ) ──────────
+  // Inchangé pour l'instant : ajoutée sans "beforeId", donc au sommet
+  // de la pile au moment de sa création → la route reste au-dessus des
+  // labels textuels, comme demandé.
   map.addSource('route-source', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] },
@@ -110,6 +159,7 @@ map.on('load', () => {
   });
 
   // Les points sont chargés EN DERNIER → ils s'affichent par-dessus tout
+  // (y compris les labels), inchangé pour l'instant.
   loadPoints();
 });
 
@@ -180,6 +230,11 @@ function onPointClick(e) {
   const feature = e.features[0];
   const coords  = feature.geometry.coordinates.slice();
 
+  // FIX : Ajustement pour éviter les sauts hors-limite géographiques si l'utilisateur zoome en arrière arrière
+  while (Math.abs(e.lngLat.lng - coords[0]) > 180) {
+    coords[0] += e.lngLat.lng > coords[0] ? 360 : -360;
+  }
+
   if (selectedFeatureId !== null) {
     map.setFeatureState({ source: 'points-source', id: selectedFeatureId }, { selected: false });
   }
@@ -191,7 +246,7 @@ function onPointClick(e) {
 
   const props = feature.properties || {};
   const label = props.nom || props.name || props.label || props.titre
-             || props.id  || `Point ${selectedFeatureId ?? ''}`;
+               || props.id  || `Point ${selectedFeatureId ?? ''}`;
 
   if (destMarker) {
     destMarker.setLngLat(coords);
@@ -204,6 +259,10 @@ function onPointClick(e) {
   }
 
   document.getElementById('route-dest-label').textContent = label;
+
+  // On mémorise les coordonnées du point sélectionné : le bouton
+  // "Voir sur Google Maps" du panneau s'en sert pour ouvrir la bonne URL.
+  selectedCoords = coords;
 
   openPanel();
   setStatsLoading();
@@ -218,12 +277,19 @@ function onPointClick(e) {
 
 // ── Calcul d'itinéraire OSRM (open source, gratuit) ──
 async function calculateRoute(origin, destination) {
+  // Annuler la requête précédente si elle est encore en cours
+  if (routeAbortController) {
+    routeAbortController.abort();
+  }
+  // Initialisation du nouveau contrôleur pour le processus asynchrone courant
+  routeAbortController = new AbortController();
+
   const url =
     `${OSRM_API}/${origin[0]},${origin[1]};${destination[0]},${destination[1]}` +
     `?geometries=geojson&overview=full`;
 
   try {
-    const res  = await fetch(url);
+    const res  = await fetch(url, { signal: routeAbortController.signal });
     const data = await res.json();
 
     if (!data.routes || !data.routes.length) {
@@ -260,11 +326,46 @@ async function calculateRoute(origin, destination) {
     routeVisible = true;
 
   } catch (err) {
+    // Si l'erreur est provoquée par l'annulation volontaire via AbortController, on l'ignore silencieusement
+    if (err.name === 'AbortError') return;
+
     console.error('[app.js] OSRM :', err);
     showToast('Erreur lors du calcul d\'itinéraire.', true);
     setStatsError();
   }
 }
+
+// ── Basculement de fond de carte (OSM vecteur / Satellite Google) ──
+// FIX : grâce au repositionnement du calque satellite (voir map.on('load')),
+// passer raster-opacity à 1 suffit désormais à masquer correctement le fond
+// OSM vecteur, puisque le satellite est maintenant empilé AU-DESSUS de ses
+// couches opaques (background/landuse/eau/routes) et non plus en dessous.
+document.getElementById('btn-toggle-style').addEventListener('click', () => {
+  const btn = document.getElementById('btn-toggle-style');
+
+  if (currentStyleMode === 'vector') {
+    // Activer l'affichage du calque raster Google Satellite
+    map.setPaintProperty('google-satellite-layer', 'raster-opacity', 1);
+
+    // Atténuer l'opacité des bâtiments 3D pour préserver la visibilité de la photo aérienne
+    if (map.getLayer('3d-buildings')) {
+      map.setPaintProperty('3d-buildings', 'fill-extrusion-opacity', 0.2);
+    }
+
+    btn.textContent = 'Vue Plan';
+    currentStyleMode = 'satellite';
+  } else {
+    // Revenir au fond OSM vecteur
+    map.setPaintProperty('google-satellite-layer', 'raster-opacity', 0);
+
+    if (map.getLayer('3d-buildings')) {
+      map.setPaintProperty('3d-buildings', 'fill-extrusion-opacity', 0.85);
+    }
+
+    btn.textContent = 'Vue Satellite';
+    currentStyleMode = 'vector';
+  }
+});
 
 // ── Formatage ─────────────────────────────────────────
 function formatDuration(seconds) {
@@ -289,6 +390,7 @@ function closePanel() {
     map.getSource('route-source').setData({ type: 'FeatureCollection', features: [] });
   }
   if (destMarker) { destMarker.remove(); destMarker = null; }
+  selectedCoords = null;
   if (selectedFeatureId !== null) {
     map.setFeatureState({ source: 'points-source', id: selectedFeatureId }, { selected: false });
     selectedFeatureId = null;
@@ -312,6 +414,22 @@ function setStatsError() {
 }
 
 document.getElementById('btn-close-route').addEventListener('click', closePanel);
+
+// ── Ouvrir le point sélectionné dans Google Maps ──────
+// Utilise le format d'URL officiel "Google Maps URLs" (sans clé API,
+// sans token, juste un lien) : https://developers.google.com/maps/documentation/urls
+const btnOpenGmaps = document.getElementById('btn-open-gmaps');
+if (btnOpenGmaps) {
+  btnOpenGmaps.addEventListener('click', () => {
+    if (!selectedCoords) {
+      showToast('Aucun point sélectionné.', true);
+      return;
+    }
+    const [lng, lat] = selectedCoords;
+    const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  });
+}
 
 // ── Géolocalisation ───────────────────────────────────
 const btnLocate = document.getElementById('btn-locate');

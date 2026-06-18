@@ -15,7 +15,12 @@
   --border:       rgba(255,255,255,0.08);
   --shadow:       0 4px 28px rgba(0,0,0,0.35);
   --font:         'DM Sans', sans-serif;
-  --panel-h:      188px;
+  /* FIX : hauteur du panneau réévaluée pour tenir compte du bouton
+     "Voir sur Google Maps" ajouté dans le flux (≈ 60px avec sa marge).
+     Cette variable pilote le décalage du toast (#route-panel.open ~ #toast)
+     en vue mobile : si vous changez le padding/les marges du bouton,
+     réajustez cette valeur en conséquence (vérifiez au DevTools). */
+  --panel-h:      248px;
 }
 
 html, body {
@@ -27,6 +32,7 @@ html, body {
 
 /* ── Carte ── */
 #map { position: absolute; inset: 0; width: 100%; height: 100%; }
+
 
 /* ── Bouton localisation ── */
 #btn-locate {
@@ -51,6 +57,40 @@ html, body {
 #btn-locate:active { transform: scale(0.95); }
 #btn-locate.locating svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Bouton basculement de style (Plan / Satellite) ── */
+#btn-toggle-style {
+  position: absolute;
+  top: 20px; right: 20px;
+  z-index: 10;
+  padding: 10px 16px;
+  border-radius: 40px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: var(--surface);
+  color: rgba(255, 255, 255, 0.85);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  transition: transform .2s ease, background .2s ease, color .2s ease, border-color .2s ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+#btn-toggle-style:hover, #btn-toggle-style:focus-visible {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  transform: scale(1.04);
+  outline: none;
+}
+
+#btn-toggle-style:active {
+  transform: scale(0.96);
+}
 
 /* ── Route panel (bottom sheet) ── */
 #route-panel {
@@ -159,6 +199,51 @@ html, body {
 @keyframes shimmer {
   from { transform: translateX(-100%); }
   to   { transform: translateX(100%);  }
+}
+
+/* ── Bouton "Voir sur Google Maps" ──────────────────────
+   FIX : placé directement dans le flux normal du panneau, entre
+   #route-stats et #route-hint (pas de wrapper .route-panel-actions
+   nécessaire — le margin-bottom ci-dessous gère l'espacement avec
+   #route-hint juste en dessous). Couleurs reprises des variables
+   --blue / --blue-rgb déjà définies dans :root pour rester cohérent
+   avec le reste de l'UI plutôt que des valeurs codées en dur. */
+#btn-open-gmaps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 13px 16px;
+  margin-bottom: 14px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--blue), #2f7fe0);
+  color: #fff;
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+  box-shadow: 0 4px 14px rgba(var(--blue-rgb), 0.35);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+#btn-open-gmaps::before {
+  content: "📍";
+  font-size: 15px;
+  line-height: 1;
+}
+#btn-open-gmaps:hover, #btn-open-gmaps:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(var(--blue-rgb), 0.45);
+  outline: none;
+}
+#btn-open-gmaps:active {
+  transform: translateY(0);
+  opacity: 0.9;
+  box-shadow: 0 2px 8px rgba(var(--blue-rgb), 0.3);
 }
 
 #route-hint {

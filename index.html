@@ -16,6 +16,9 @@
   <div id="map"></div>
 
   <!-- Bouton localisation -->
+  <!-- FIX : supprimé le second <button id="btn-locate"> dupliqué plus bas
+       dans le fichier (id en double = HTML invalide, et il se superposait
+       exactement à celui-ci sans jamais recevoir son propre listener). -->
   <button id="btn-locate" aria-label="Me localiser">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -23,6 +26,11 @@
       <path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>
       <circle cx="12" cy="12" r="8" stroke-dasharray="2 2"/>
     </svg>
+  </button>
+
+  <!-- Bouton basculement de style (Plan / Satellite) -->
+  <button id="btn-toggle-style" aria-label="Changer le style de carte">
+    Vue Satellite
   </button>
 
   <!-- Panneau itinéraire (bottom sheet) -->
@@ -61,6 +69,12 @@
         <div class="stat-label">distance</div>
       </div>
     </div>
+
+    <!-- FIX : bouton déplacé ici, à l'intérieur de #route-panel, entre
+         #route-stats et #route-hint — c'est l'emplacement attendu par le
+         CSS (#btn-open-gmaps { width: 100%; ... } est pensé pour le padding
+         du panel, pas pour toute la largeur de la fenêtre). -->
+    <button id="btn-open-gmaps">Voir sur Google Maps</button>
 
     <div id="route-hint">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
