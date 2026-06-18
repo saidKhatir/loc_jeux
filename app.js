@@ -15,7 +15,6 @@ let destMarker            = null;
 let selectedFeatureId     = null;
 let selectedCoords        = null;   // [lng, lat] du point cliqué, utilisé pour le lien Google Maps
 let routeVisible          = false;
-let currentStyleMode      = 'vector'; // 'vector' (OSM) ou 'satellite' (Google)
 let routeAbortController  = null;     // Gestion de la concurrence réseau OSRM
 
 // ── Carte MapLibre ────────────────────────────────────
@@ -59,12 +58,23 @@ map.on('load', () => {
     tileSize: 256
   });
 
+  // FIX : plus de bouton manuel — la transition OSM → Satellite se fait
+  // maintenant automatiquement et en fondu via une expression 'interpolate'
+  // sur le zoom : opacité 0 jusqu'à z13 (fond OSM seul visible), puis
+  // montée linéaire et douce jusqu'à opacité 1 à z14 (satellite pleinement
+  // visible). Aucun JS supplémentaire requis ensuite : MapLibre réévalue
+  // cette expression à chaque frame de zoom, d'où le "smooth" demandé.
   map.addLayer({
     id: 'google-satellite-layer',
     type: 'raster',
     source: 'google-satellite-source',
     paint: {
-      'raster-opacity': 0 // Masqué par défaut : on démarre sur le fond OSM vecteur
+      'raster-opacity': [
+        'interpolate', ['linear'], ['zoom'],
+        13, 0,
+        14, 1,
+      ],
+      'raster-opacity-transition': { duration: 0 }, // l'interpolation gère déjà le fondu ; pas de double-transition
     }
   }, firstSymbolId);
 
@@ -104,7 +114,16 @@ map.on('load', () => {
           // directement leur hauteur réelle dès l'entrée en minzoom.
           'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 10],
           'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-          'fill-extrusion-opacity': 0.85,
+          // FIX : opacité désormais liée au même intervalle de zoom (13→14)
+          // que le fondu du satellite, pour que les bâtiments s'atténuent
+          // progressivement et laissent voir la photo aérienne au fur et
+          // à mesure qu'elle apparaît, au lieu d'un saut brusque déclenché
+          // par un clic.
+          'fill-extrusion-opacity': [
+            'interpolate', ['linear'], ['zoom'],
+            13, 0.85,
+            14, 0.2,
+          ],
         },
       },
       firstSymbolId
@@ -335,37 +354,9 @@ async function calculateRoute(origin, destination) {
   }
 }
 
-// ── Basculement de fond de carte (OSM vecteur / Satellite Google) ──
-// FIX : grâce au repositionnement du calque satellite (voir map.on('load')),
-// passer raster-opacity à 1 suffit désormais à masquer correctement le fond
-// OSM vecteur, puisque le satellite est maintenant empilé AU-DESSUS de ses
-// couches opaques (background/landuse/eau/routes) et non plus en dessous.
-document.getElementById('btn-toggle-style').addEventListener('click', () => {
-  const btn = document.getElementById('btn-toggle-style');
-
-  if (currentStyleMode === 'vector') {
-    // Activer l'affichage du calque raster Google Satellite
-    map.setPaintProperty('google-satellite-layer', 'raster-opacity', 1);
-
-    // Atténuer l'opacité des bâtiments 3D pour préserver la visibilité de la photo aérienne
-    if (map.getLayer('3d-buildings')) {
-      map.setPaintProperty('3d-buildings', 'fill-extrusion-opacity', 0.2);
-    }
-
-    btn.textContent = 'Vue Plan';
-    currentStyleMode = 'satellite';
-  } else {
-    // Revenir au fond OSM vecteur
-    map.setPaintProperty('google-satellite-layer', 'raster-opacity', 0);
-
-    if (map.getLayer('3d-buildings')) {
-      map.setPaintProperty('3d-buildings', 'fill-extrusion-opacity', 0.85);
-    }
-
-    btn.textContent = 'Vue Satellite';
-    currentStyleMode = 'vector';
-  }
-});
+// ── Fond de carte : transition automatique gérée entièrement dans
+// map.on('load') via des expressions 'interpolate' sur le zoom (voir
+// plus haut). Plus de bouton ni de gestionnaire de clic nécessaires ici.
 
 // ── Formatage ─────────────────────────────────────────
 function formatDuration(seconds) {

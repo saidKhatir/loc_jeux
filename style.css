@@ -58,40 +58,6 @@ html, body {
 #btn-locate.locating svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── Bouton basculement de style (Plan / Satellite) ── */
-#btn-toggle-style {
-  position: absolute;
-  top: 20px; right: 20px;
-  z-index: 10;
-  padding: 10px 16px;
-  border-radius: 40px;
-  border: 1px solid var(--border);
-  cursor: pointer;
-  background: var(--surface);
-  color: rgba(255, 255, 255, 0.85);
-  font-family: var(--font);
-  font-size: 13px;
-  font-weight: 500;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: var(--shadow);
-  transition: transform .2s ease, background .2s ease, color .2s ease, border-color .2s ease;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-
-#btn-toggle-style:hover, #btn-toggle-style:focus-visible {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-  transform: scale(1.04);
-  outline: none;
-}
-
-#btn-toggle-style:active {
-  transform: scale(0.96);
-}
-
 /* ── Route panel (bottom sheet) ── */
 #route-panel {
   position: absolute;
